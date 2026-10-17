@@ -95,7 +95,6 @@ netrecon/
 - Python 3.10+
 - See `requirements.txt`
 
----
 
 ## Disclaimer
 
