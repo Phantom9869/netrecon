@@ -2,6 +2,7 @@
 Export a ReconReport to a self-contained HTML file.
 No Jinja2 dependency — template is built with plain string formatting.
 """
+import html
 from pathlib import Path
 from datetime import datetime
 from ..models import ReconReport
@@ -116,13 +117,40 @@ def _whois_card(w) -> str:
     return _section("📋 WHOIS", body)
 
 
-def _subdomains_card(subs: list[str]) -> str:
-    if not subs: return ""
-    rows = "".join(
-        f'<div class="row"><span class="value ok">{s}</span></div>\n' for s in sorted(subs)
-    )
-    header = _row("Total found", str(len(subs)))
-    return _section(f"🌐 Subdomains ({len(subs)})", header + rows)
+def _subdomains_card(result) -> str:
+    if result is None:
+        return ""
+    if not result.entries and not result.wildcard and not result.crtsh_error and not result.notes:
+        return ""
+
+    body = ""
+    if result.wildcard:
+        sinks = ", ".join(result.wildcard_ips) or "detected"
+        body += (
+            '<div class="row"><span class="value warn">'
+            f"Wildcard DNS ({html.escape(sinks)}); sink responses ignored"
+            "</span></div>\n"
+        )
+    if result.crtsh_error:
+        body += f'<div class="issue">{html.escape(result.crtsh_error)}</div>\n'
+    for note in result.notes:
+        body += f'<div class="row"><span class="value">{html.escape(note)}</span></div>\n'
+
+    resolved = sum(1 for entry in result.entries if entry.ips)
+    body += _row("Names", str(len(result.entries)))
+    body += _row("Resolving", str(resolved))
+    for entry in result.entries:
+        ips = ", ".join(entry.ips) if entry.ips else "unresolved"
+        bits = f'<span class="tag">{html.escape(entry.source)}</span>'
+        if entry.takeover:
+            bits += f' <span class="bad">{html.escape(entry.takeover)}</span>'
+        body += (
+            '<div class="row">'
+            f'<span class="value ok">{html.escape(entry.host)}</span>'
+            f'<span class="value">{html.escape(ips)} {bits}</span>'
+            "</div>\n"
+        )
+    return _section(f"🌐 Subdomains ({len(result.entries)})", body)
 
 
 def _ports_card(ports) -> str:

@@ -9,6 +9,7 @@ python -m netrecon ssl    example.com
 python -m netrecon headers example.com
 python -m netrecon whois  example.com
 python -m netrecon subdomains example.com --wordlist wordlists/common.txt
+python -m netrecon subdomains example.com --no-crtsh
 python -m netrecon ports  example.com --profile top20
 """
 import argparse
@@ -68,12 +69,13 @@ def cmd_whois(args) -> None:
 
 
 def cmd_subdomains(args) -> None:
-    found = subdomains.run(
+    result = subdomains.run(
         args.target,
         wordlist=args.wordlist,
         threads=args.threads,
+        use_crtsh=not args.no_crtsh,
     )
-    subdomains.display(found)
+    subdomains.display(result)
 
 
 def cmd_ports(args) -> None:
@@ -132,12 +134,12 @@ def cmd_scan(args) -> None:
     if run_all or args.subdomains:
         print(f"  [5/6] Subdomains…")
         try:
-            found = subdomains.run(
+            report.subdomains = subdomains.run(
                 args.target,
                 wordlist=getattr(args, "wordlist", None),
                 threads=getattr(args, "threads", 50),
+                use_crtsh=not getattr(args, "no_crtsh", False),
             )
-            report.subdomains = sorted(found.keys())
         except Exception as e:
             report.errors["subdomains"] = str(e)
 
@@ -180,6 +182,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument("--subdomains", action="store_true")
     p_scan.add_argument("--ports",      action="store_true")
     p_scan.add_argument("--wordlist",   default=None)
+    p_scan.add_argument("--no-crtsh",   action="store_true",
+                        help="Skip the crt.sh certificate transparency lookup")
     p_scan.add_argument("--profile",    default="top20",
                         choices=list(port_scan.PROFILES))
     p_scan.add_argument("--timeout",    type=float, default=1.0)
@@ -210,10 +214,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_who.set_defaults(func=cmd_whois)
 
     # ── subdomains ────────────────────────────────────────────────────
-    p_sub = sub.add_parser("subdomains", help="Subdomain brute-forcer")
+    p_sub = sub.add_parser("subdomains", help="Subdomain discovery (wordlist + crt.sh)")
     p_sub.add_argument("target")
     p_sub.add_argument("--wordlist", default=None)
     p_sub.add_argument("--threads",  type=int, default=50)
+    p_sub.add_argument("--no-crtsh", action="store_true",
+                       help="Skip the crt.sh certificate transparency lookup")
     p_sub.set_defaults(func=cmd_subdomains)
 
     # ── ports ─────────────────────────────────────────────────────────
@@ -239,6 +245,6 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\n  Interrupted.")
         sys.exit(0)
-    except ValueError as e:
-        print(f"\n  Error: {e}", file=sys.stderr)
+    except (ValueError, FileNotFoundError) as exc:
+        print(f"\n  Error: {exc}", file=sys.stderr)
         sys.exit(1)
