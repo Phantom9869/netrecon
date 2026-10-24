@@ -41,6 +41,26 @@ def _whois_dict(w):
             "days_until_expiry": w.days_until_expiry, "issues": w.issues}
 
 
+def _subdomains_dict(result):
+    if result is None:
+        return None
+    return {
+        "wildcard": result.wildcard,
+        "wildcard_ips": result.wildcard_ips,
+        "crtsh_error": result.crtsh_error,
+        "notes": result.notes,
+        "entries": [
+            {
+                "host": entry.host,
+                "ips": entry.ips,
+                "source": entry.source,
+                "takeover": entry.takeover,
+            }
+            for entry in result.entries
+        ],
+    }
+
+
 def save(report: ReconReport, path: str) -> None:
     data = {
         "target":     report.target,
@@ -49,7 +69,7 @@ def save(report: ReconReport, path: str) -> None:
         "ssl":        _ssl_dict(report.ssl),
         "headers":    _headers_dict(report.headers),
         "whois":      _whois_dict(report.whois),
-        "subdomains": report.subdomains,
+        "subdomains": _subdomains_dict(report.subdomains),
         "ports":      [{"port": p.port, "state": p.state,
                         "service": p.service, "banner": p.banner}
                        for p in report.ports],

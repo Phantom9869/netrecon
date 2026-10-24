@@ -12,7 +12,7 @@ A modular network reconnaissance toolkit. Profile a target domain or IP from eve
 | `ssl` | Cert expiry, TLS version, cipher, SANs, chain |
 | `headers` | HTTP security header grader (A+ → F) |
 | `whois` | Registrar, creation/expiry dates, nameservers |
-| `subdomains` | Threaded wordlist brute-forcer + takeover detection |
+| `subdomains` | Wordlist + crt.sh certificate transparency, wildcard filtering, takeover hints |
 | `ports` | Threaded TCP scanner with banner grabbing |
 
 ---
@@ -39,6 +39,7 @@ python -m netrecon ssl    example.com
 python -m netrecon headers example.com
 python -m netrecon whois  example.com
 python -m netrecon subdomains example.com --wordlist wordlists/common.txt
+python -m netrecon subdomains example.com --no-crtsh
 python -m netrecon ports  example.com --profile top20
 
 # Port scanning options
@@ -52,6 +53,17 @@ python -m netrecon scan example.com --all --format html -o report.html
 ```
 
 ---
+
+## Subdomains
+
+`subdomains` merges a wordlist with certificate-transparency names from crt.sh. Each finding records its addresses, where it came from (`wordlist`, `crtsh`, or `wordlist+crtsh`), and a takeover hint when the CNAME sits on a known unclaimed-service suffix.
+
+- Two random labels probe for wildcard DNS. Answers that match only that sink are dropped, so a catch-all record does not mark the whole wordlist as live. A name with its own CNAME is kept — dangling aliases are how subdomain takeovers show up, and an `A` lookup alone hides them.
+- Names that appear in certificate logs but no longer resolve are still reported.
+- The crt.sh request does not follow redirects, times out, and stops if the body exceeds 1 MiB. A crt.sh failure leaves the wordlist results in place. `--no-crtsh` skips the lookup.
+- At most 250 extra certificate-transparency names are resolved per run.
+
+The JSON report stores these under `subdomains` (`entries`, `wildcard`, `wildcard_ips`, `crtsh_error`, `notes`). The HTML report includes the same fields. Takeover text and hostnames are escaped in the HTML output.
 
 ## Profiles
 

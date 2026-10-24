@@ -58,6 +58,25 @@ class WhoisResult:
     issues:             list[str]       = field(default_factory=list)
 
 
+# ── Subdomains ────────────────────────────────────────────────────────
+
+@dataclass
+class SubdomainEntry:
+    host:     str
+    ips:      list[str] = field(default_factory=list)
+    source:   str = ""          # "wordlist" | "crtsh" | "wordlist+crtsh"
+    takeover: str | None = None
+
+
+@dataclass
+class SubdomainResult:
+    entries:      list[SubdomainEntry] = field(default_factory=list)
+    wildcard:     bool = False
+    wildcard_ips: list[str] = field(default_factory=list)
+    crtsh_error:  str | None = None
+    notes:        list[str] = field(default_factory=list)
+
+
 # ── Ports ─────────────────────────────────────────────────────────────
 
 @dataclass
@@ -78,7 +97,7 @@ class ReconReport:
     ssl:        SslResult    | None = None
     headers:    HeaderResult | None = None
     whois:      WhoisResult  | None = None
-    subdomains: list[str]           = field(default_factory=list)
+    subdomains: SubdomainResult | None = None
     ports:      list[PortEntry]     = field(default_factory=list)
     errors:     dict[str, str]      = field(default_factory=dict)
 
@@ -119,8 +138,24 @@ class ReconReport:
             print(f"  WHOIS      : {self.whois.registrar or 'unknown'}  "
                   f"expires in {exp}")
 
-        if self.subdomains:
-            print(f"  Subdomains : {len(self.subdomains)} found")
+        if self.subdomains and (
+            self.subdomains.entries
+            or self.subdomains.wildcard
+            or self.subdomains.crtsh_error
+        ):
+            subs     = self.subdomains
+            count    = len(subs.entries)
+            noun     = "name" if count == 1 else "names"
+            resolved = sum(1 for entry in subs.entries if entry.ips)
+            takes    = sum(1 for entry in subs.entries if entry.takeover)
+            extra    = f"  ({resolved} resolving)"
+            if subs.wildcard:
+                extra += "  |  wildcard DNS"
+            if takes:
+                extra += f"  |  {takes} takeover hint(s)"
+            if subs.crtsh_error:
+                extra += "  |  crt.sh failed"
+            print(f"  Subdomains : {count} {noun}{extra}")
 
         if self.open_ports:
             ports_str = ", ".join(str(p.port) for p in self.open_ports[:8])

@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime
 from netrecon.models import (
     DnsResult, SslResult, HeaderResult, WhoisResult,
-    PortEntry, ReconReport,
+    PortEntry, ReconReport, SubdomainEntry, SubdomainResult,
 )
 
 
@@ -37,6 +37,19 @@ class TestWhoisResult(unittest.TestCase):
         self.assertIsNone(r.registrar)
         self.assertIsNone(r.days_until_expiry)
         self.assertEqual(r.nameservers, [])
+
+
+class TestSubdomainResult(unittest.TestCase):
+    def test_defaults(self):
+        entry = SubdomainEntry(host="www.example.com")
+        result = SubdomainResult()
+        report = ReconReport(target="example.com")
+        self.assertEqual(entry.ips, [])
+        self.assertIsNone(entry.takeover)
+        self.assertEqual(result.entries, [])
+        self.assertFalse(result.wildcard)
+        self.assertIsNone(result.crtsh_error)
+        self.assertIsNone(report.subdomains)
 
 
 class TestPortEntry(unittest.TestCase):
