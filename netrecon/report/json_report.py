@@ -51,7 +51,9 @@ def save(report: ReconReport, path: str) -> None:
         "whois":      _whois_dict(report.whois),
         "subdomains": report.subdomains,
         "ports":      [{"port": p.port, "state": p.state,
-                        "service": p.service, "banner": p.banner}
+                        "service": p.service, "banner": p.banner,
+                        "product": p.product, "version": p.version,
+                        "findings": list(p.findings)}
                        for p in report.ports],
         "errors": report.errors,
     }
