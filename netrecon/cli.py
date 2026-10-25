@@ -10,6 +10,8 @@ python -m netrecon headers example.com
 python -m netrecon whois  example.com
 python -m netrecon subdomains example.com --wordlist wordlists/common.txt
 python -m netrecon ports  example.com --profile top20
+python -m netrecon ports  example.com --top-ports 40
+python -m netrecon ports  example.com --ports 22 80 --no-banners
 """
 import argparse
 import sys
@@ -90,6 +92,8 @@ def cmd_ports(args) -> None:
         end=end,
         timeout=args.timeout,
         threads=args.threads,
+        grab_banners=not getattr(args, "no_banners", False),
+        top_ports=getattr(args, "top_ports", None),
     )
     port_scan.display(results)
 
@@ -144,11 +148,17 @@ def cmd_scan(args) -> None:
     if run_all or args.ports:
         print(f"  [6/6] Ports…")
         try:
+            top_ports = getattr(args, "top_ports", None)
+            profile = getattr(args, "profile", "top20")
+            if top_ports is not None:
+                profile = None
             results = port_scan.run(
                 args.target,
-                profile=getattr(args, "profile", "top20"),
+                profile=profile,
                 timeout=getattr(args, "timeout", 1.0),
                 threads=getattr(args, "threads", 300),
+                grab_banners=not getattr(args, "no_banners", False),
+                top_ports=top_ports,
             )
             report.ports = results
         except Exception as e:
@@ -182,6 +192,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument("--wordlist",   default=None)
     p_scan.add_argument("--profile",    default="top20",
                         choices=list(port_scan.PROFILES))
+    p_scan.add_argument("--top-ports", type=int, default=None, metavar="N",
+                        help="Scan the N most common ports (overrides --profile)")
+    p_scan.add_argument("--no-banners", action="store_true",
+                        help="Skip banner grabs and version probes")
     p_scan.add_argument("--timeout",    type=float, default=1.0)
     p_scan.add_argument("--threads",    type=int,   default=100)
     p_scan.add_argument("-o", "--output", default=None)
@@ -223,8 +237,12 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--profile", choices=list(port_scan.PROFILES))
     pg.add_argument("--range",   nargs=2, type=int, metavar=("START", "END"))
     pg.add_argument("--ports",   nargs="+", type=int, metavar="PORT")
+    pg.add_argument("--top-ports", type=int, metavar="N",
+                    help="Scan the N most common TCP ports")
     p_prt.add_argument("--timeout", type=float, default=1.0)
     p_prt.add_argument("--threads", type=int,   default=300)
+    p_prt.add_argument("--no-banners", action="store_true",
+                       help="Skip banner grabs and version probes")
     p_prt.set_defaults(func=cmd_ports)
 
     return parser

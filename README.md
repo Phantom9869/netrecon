@@ -13,7 +13,7 @@ A modular network reconnaissance toolkit. Profile a target domain or IP from eve
 | `headers` | HTTP security header grader (A+ → F) |
 | `whois` | Registrar, creation/expiry dates, nameservers |
 | `subdomains` | Threaded wordlist brute-forcer + takeover detection |
-| `ports` | Threaded TCP scanner with banner grabbing |
+| `ports` | Threaded TCP scanner with service and version fingerprinting |
 
 ---
 
@@ -45,6 +45,8 @@ python -m netrecon ports  example.com --profile top20
 python -m netrecon ports example.com --profile web
 python -m netrecon ports example.com --range 1 1024
 python -m netrecon ports example.com --ports 22 80 443 3306
+python -m netrecon ports example.com --top-ports 40
+python -m netrecon ports example.com --ports 22 80 443 --no-banners
 
 # Save report
 python -m netrecon scan example.com --all --format json -o report.json
@@ -60,8 +62,61 @@ python -m netrecon scan example.com --all --format html -o report.html
 | `top20` | 20 most common ports |
 | `top100` | Top 100 ports |
 | `web` | 80, 443, 8000, 8080, 8443… |
-| `db` | MySQL, Postgres, Redis, Mongo… |
+| `db` | MySQL, Postgres, Redis, Mongo, Memcached, CouchDB, Cassandra… |
 | `mail` | SMTP, POP3, IMAP and TLS variants |
+
+`--top-ports N` scans the first N ports of a curated list (`TOP_PORTS`). The first 20 match `top20`. The next ports are high-signal database and admin services (PostgreSQL, Redis, MongoDB, Elasticsearch, Memcached, Docker, Kubernetes, and others), then the rest of `top100`, then a few admin ports that `top100` does not include. On `scan`, `--top-ports` overrides `--profile`.
+
+The default profile is still `top20`, so a normal scan does not get slower.
+
+---
+
+## Port fingerprinting
+
+When a TCP connect succeeds, netrecon reads the service banner and, if the service stays quiet, sends one light probe:
+
+- banner-first services (SSH, FTP, SMTP, POP3, IMAP, MySQL, Telnet) are read passively
+- HTTP gets `HEAD /`, Elasticsearch `GET /`, the Docker API `GET /version`
+- Redis gets `INFO`, Memcached gets `version`, MongoDB gets a single `isMaster`
+- TLS ports get a handshake (TLS 1.0 and later, so old protocols can be seen), then the same kind of read or HTTP probe
+- FTP on port 21/2121 gets one `USER anonymous` / `PASS anonymous@` attempt
+
+Reads are capped (4096 bytes, banner text truncated for display), use the scan's per-connection timeout, and are decoded with replacement. Control characters, ANSI escapes, and bidi overrides are stripped. Banner text is never evaluated or passed to a shell.
+
+Each open port may then carry:
+
+| Field | Meaning |
+|---|---|
+| `service` | Fingerprinted protocol when recognized, otherwise the IANA name |
+| `product` | Software name, such as `nginx` or `OpenSSH` |
+| `version` | Version string parsed from the banner |
+| `findings` | Notable notes: outdated versions, exposed admin/database services, anonymous FTP, unauthenticated data stores |
+
+`--no-banners` skips the reads and probes (no product/version). Exposure notes that depend only on the port number, such as an open Redis or Telnet port, are still reported.
+
+Version notes come from `VERSION_RULES` in `netrecon/modules/port_scan.py`. That table is a **heuristic, not a CVE database**. A hit means "this version is older than a curated cutoff," not "this CVE is present."
+
+### JSON report
+
+Existing port fields are unchanged: `port`, `state`, `service`, `banner`. Three fields were added, which older readers can ignore:
+
+```json
+{
+  "port": 22,
+  "state": "open",
+  "service": "ssh",
+  "banner": "SSH-2.0-OpenSSH_7.2p2",
+  "product": "OpenSSH",
+  "version": "7.2p2",
+  "findings": [
+    "OpenSSH before 8.2 is outdated; found 7.2p2 (heuristic, not a CVE database)"
+  ]
+}
+```
+
+Closed and filtered ports include the same keys, with empty `product`, `version`, and `findings`. `service` may now be a fingerprinted name (`elasticsearch`, `docker`, `mongodb`) when the IANA table has no useful entry or the banner identified the service.
+
+HTML reports escape banner, product, version, findings, and the other target-controlled fields. Treat banner text as hostile.
 
 ---
 
@@ -98,4 +153,4 @@ netrecon/
 
 ## Disclaimer
 
-For use on systems you own or have explicit permission to test.
+Use netrecon only against hosts and networks you are authorized to test. Scanning systems without permission may be illegal. The version and exposure notes are reconnaissance hints, not a vulnerability assessment.

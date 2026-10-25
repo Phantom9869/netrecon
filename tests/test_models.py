@@ -47,6 +47,15 @@ class TestPortEntry(unittest.TestCase):
     def test_closed_port(self):
         p = PortEntry(port=8080, state="closed")
         self.assertEqual(p.service, "")
+        self.assertEqual(p.product, "")
+        self.assertEqual(p.version, "")
+        self.assertEqual(p.findings, [])
+
+    def test_findings_are_not_shared(self):
+        first = PortEntry(port=22, state="open")
+        second = PortEntry(port=80, state="open")
+        first.findings.append("exposed")
+        self.assertEqual(second.findings, [])
 
 
 class TestReconReport(unittest.TestCase):

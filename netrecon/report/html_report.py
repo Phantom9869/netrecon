@@ -1,7 +1,11 @@
 """
 Export a ReconReport to a self-contained HTML file.
 No Jinja2 dependency — template is built with plain string formatting.
+
+Every value that came from the target (banners, headers, DNS, names) is
+HTML-escaped. Banners in particular are attacker-controlled.
 """
+import html
 from pathlib import Path
 from datetime import datetime
 from ..models import ReconReport
@@ -36,17 +40,29 @@ h2   { color: #8b949e; font-size: .85rem; font-weight: normal; margin-bottom: 2r
 .tag.missing { border-color: #f85149; color: #f85149; }
 .issue { color: #f85149; padding: .2rem 0; }
 .issue::before { content: "⚠ "; }
-.port-row { display: flex; padding: .25rem 0; }
+.port-row { display: flex; gap: .75rem; padding: .25rem 0; flex-wrap: wrap; }
 .port-num { color: #58a6ff; width: 70px; }
 .port-svc { color: #d29922; width: 130px; }
-.port-banner { color: #8b949e; }
+.port-ver { color: #d2a8ff; width: 220px; }
+.port-banner { color: #8b949e; word-break: break-all; flex: 1; }
+.port-finding { color: #f85149; padding: .15rem 0 .15rem 70px; word-break: break-word; }
+.note { color: #8b949e; font-size: .75rem; margin-top: .75rem; }
 footer { color: #484f58; font-size: .75rem; margin-top: 2rem; text-align: center; }
 """
 
 
-def _row(label: str, value: str, cls: str = "") -> str:
+def _e(value: object) -> str:
+    """Escape untrusted report text. quote=True also covers attribute context."""
+    return html.escape("" if value is None else str(value), quote=True)
+
+
+def _row(label: str, value: str, cls: str = "", *, raw: bool = False) -> str:
+    shown = value if raw else _e(value)
     cls_str = f' class="value {cls}"' if cls else ' class="value"'
-    return f'<div class="row"><span class="label">{label}</span><span{cls_str}>{value}</span></div>\n'
+    return (
+        f'<div class="row"><span class="label">{_e(label)}</span>'
+        f'<span{cls_str}>{shown}</span></div>\n'
+    )
 
 
 def _section(title: str, body: str) -> str:
@@ -57,12 +73,12 @@ def _dns_card(r) -> str:
     if not r: return ""
     body  = _row("A records", ", ".join(r.a) or "—")
     body += _row("AAAA",      ", ".join(r.aaaa) or "—")
-    body += _row("MX",        "<br>".join(r.mx) or "—")
-    body += _row("NS",        "<br>".join(r.ns) or "—")
+    body += _row("MX",        "<br>".join(_e(item) for item in r.mx) or "—", raw=True)
+    body += _row("NS",        "<br>".join(_e(item) for item in r.ns) or "—", raw=True)
     body += _row("SPF",       r.spf  or "❌ not found", "" if r.spf  else "bad")
     body += _row("DMARC",     r.dmarc or "❌ not found", "" if r.dmarc else "bad")
     for issue in r.issues:
-        body += f'<div class="issue">{issue}</div>\n'
+        body += f'<div class="issue">{_e(issue)}</div>\n'
     return _section("🔍 DNS", body)
 
 
@@ -78,25 +94,25 @@ def _ssl_card(s) -> str:
     body += _row("Cipher",   s.cipher)
     body += _row("SANs",     ", ".join(s.san) or "—")
     for issue in s.issues:
-        body += f'<div class="issue">{issue}</div>\n'
+        body += f'<div class="issue">{_e(issue)}</div>\n'
     return _section("🔒 SSL / TLS", body)
 
 
 def _headers_card(h) -> str:
     if not h: return ""
     letter   = h.grade[0] if h.grade else "F"
-    grade_el = f'<span class="grade {letter}">{h.grade}</span>'
-    body     = _row("Grade", grade_el)
+    grade_el = f'<span class="grade {_e(letter)}">{_e(h.grade)}</span>'
+    body     = _row("Grade", grade_el, raw=True)
     body    += _row("Score", f"{h.score} / {h.max_score}")
 
     present_tags = "".join(
-        f'<span class="tag present">{x}</span>' for x in h.present
+        f'<span class="tag present">{_e(x)}</span>' for x in h.present
     )
     missing_tags = "".join(
-        f'<span class="tag missing">{x}</span>' for x in h.missing
+        f'<span class="tag missing">{_e(x)}</span>' for x in h.missing
     )
-    body += _row("Present", present_tags or "—")
-    body += _row("Missing", missing_tags or "—")
+    body += _row("Present", present_tags or "—", raw=True)
+    body += _row("Missing", missing_tags or "—", raw=True)
     return _section("🛡 HTTP Headers", body)
 
 
@@ -110,19 +126,25 @@ def _whois_card(w) -> str:
     body += _row("Created",    _d(w.created))
     body += _row("Updated",    _d(w.updated))
     body += _row("Expires",    f"{_d(w.expires)} ({w.days_until_expiry}d)" if w.days_until_expiry is not None else _d(w.expires), exp_cls)
-    body += _row("Nameservers", "<br>".join(w.nameservers) or "—")
+    body += _row("Nameservers", "<br>".join(_e(ns) for ns in w.nameservers) or "—", raw=True)
     for issue in w.issues:
-        body += f'<div class="issue">{issue}</div>\n'
+        body += f'<div class="issue">{_e(issue)}</div>\n'
     return _section("📋 WHOIS", body)
 
 
 def _subdomains_card(subs: list[str]) -> str:
     if not subs: return ""
     rows = "".join(
-        f'<div class="row"><span class="value ok">{s}</span></div>\n' for s in sorted(subs)
+        f'<div class="row"><span class="value ok">{_e(s)}</span></div>\n' for s in sorted(subs)
     )
     header = _row("Total found", str(len(subs)))
     return _section(f"🌐 Subdomains ({len(subs)})", header + rows)
+
+
+def _version_label(port) -> str:
+    if port.product and port.version:
+        return f"{port.product}/{port.version}"
+    return port.product or port.version or "—"
 
 
 def _ports_card(ports) -> str:
@@ -132,11 +154,16 @@ def _ports_card(ports) -> str:
     rows = ""
     for p in open_:
         rows += (f'<div class="port-row">'
-                 f'<span class="port-num">{p.port}</span>'
-                 f'<span class="port-svc">{p.service}</span>'
-                 f'<span class="port-banner">{p.banner}</span>'
+                 f'<span class="port-num">{_e(p.port)}</span>'
+                 f'<span class="port-svc">{_e(p.service)}</span>'
+                 f'<span class="port-ver">{_e(_version_label(p))}</span>'
+                 f'<span class="port-banner">{_e(p.banner)}</span>'
                  f'</div>\n')
-    return _section(f"🔌 Open Ports ({len(open_)})", body + rows)
+        for finding in p.findings:
+            rows += f'<div class="port-finding">⚠ {_e(finding)}</div>\n'
+    note = ('<div class="note">Version flags are heuristics from a small '
+            'built-in table, not a CVE database.</div>')
+    return _section(f"🔌 Open Ports ({len(open_)})", body + rows + note)
 
 
 def save(report: ReconReport, path: str) -> None:
@@ -151,7 +178,7 @@ def save(report: ReconReport, path: str) -> None:
     errors_html = ""
     if report.errors:
         for mod, msg in report.errors.items():
-            errors_html += f'<div class="issue"><b>{mod}</b>: {msg}</div>\n'
+            errors_html += f'<div class="issue"><b>{_e(mod)}</b>: {_e(msg)}</div>\n'
         errors_html = _section("⚠️ Errors", errors_html)
 
     html = f"""<!DOCTYPE html>
@@ -159,11 +186,11 @@ def save(report: ReconReport, path: str) -> None:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>netrecon — {report.target}</title>
+  <title>netrecon — {_e(report.target)}</title>
   <style>{_CSS}</style>
 </head>
 <body>
-  <h1>🔍 netrecon — {report.target}</h1>
+  <h1>🔍 netrecon — {_e(report.target)}</h1>
   <h2>Scanned at {ts}</h2>
   {cards}
   {errors_html}

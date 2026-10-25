@@ -62,10 +62,13 @@ class WhoisResult:
 
 @dataclass
 class PortEntry:
-    port:    int
-    state:   str          # "open" | "closed" | "filtered"
-    service: str = ""
-    banner:  str = ""
+    port:     int
+    state:    str          # "open" | "closed" | "filtered"
+    service:  str = ""
+    banner:   str = ""
+    product:  str = ""     # fingerprinted software, e.g. "nginx"
+    version:  str = ""     # fingerprinted version, e.g. "1.18.0"
+    findings: list[str] = field(default_factory=list)
 
 
 # ── Top-level report ──────────────────────────────────────────────────
@@ -126,6 +129,21 @@ class ReconReport:
             ports_str = ", ".join(str(p.port) for p in self.open_ports[:8])
             extra = f" (+{len(self.open_ports)-8} more)" if len(self.open_ports) > 8 else ""
             print(f"  Open ports : {len(self.open_ports)}  [{ports_str}{extra}]")
+            identified = []
+            for entry in self.open_ports:
+                if entry.product and entry.version:
+                    identified.append(f"{entry.port} {entry.product}/{entry.version}")
+                elif entry.product:
+                    identified.append(f"{entry.port} {entry.product}")
+                if len(identified) >= 6:
+                    break
+            if identified:
+                hidden = sum(1 for p in self.open_ports if p.product) - len(identified)
+                more = f" (+{hidden} more)" if hidden > 0 else ""
+                print(f"  Services   : {', '.join(identified)}{more}")
+            flagged = sum(1 for p in self.open_ports if p.findings)
+            if flagged:
+                print(f"  Port flags : {flagged} with findings")
 
         if self.errors:
             print(f"  Errors     : {', '.join(self.errors.keys())}")
