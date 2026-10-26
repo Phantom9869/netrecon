@@ -12,12 +12,14 @@ python -m netrecon subdomains example.com --wordlist wordlists/common.txt
 python -m netrecon ports  example.com --profile top20
 python -m netrecon ports  example.com --top-ports 40
 python -m netrecon ports  example.com --ports 22 80 --no-banners
+python -m netrecon web    example.com
+python -m netrecon scan   example.com --all --no-web-exposure
 """
 import argparse
 import sys
 
 from .models import ReconReport
-from .modules import dns_enum, ssl_check, headers, whois_lookup, subdomains, port_scan
+from .modules import dns_enum, ssl_check, headers, whois_lookup, subdomains, port_scan, web_exposure
 from .report  import json_report, html_report
 
 
@@ -78,6 +80,23 @@ def cmd_subdomains(args) -> None:
     subdomains.display(found)
 
 
+def cmd_web(args) -> None:
+    print(f"  Probing web exposure on {args.target}…")
+    result = web_exposure.run(
+        args.target,
+        timeout=args.timeout,
+        threads=args.threads,
+    )
+    web_exposure.display(result)
+
+
+def _want_web(args, run_all: bool) -> bool:
+    """Full scans include web exposure unless opted out. An explicit flag forces it."""
+    if getattr(args, "web_exposure", False):
+        return True
+    return bool(run_all) and not getattr(args, "no_web_exposure", False)
+
+
 def cmd_ports(args) -> None:
     ports_arg  = getattr(args, "ports",   None)
     range_arg  = getattr(args, "range",   None)
@@ -101,9 +120,11 @@ def cmd_ports(args) -> None:
 def cmd_scan(args) -> None:
     """Run all (or selected) modules and produce a unified report."""
     report = ReconReport(target=args.target)
-    run_all = args.all or not any([args.dns, args.ssl,
-                                   args.headers, args.whois,
-                                   args.subdomains, args.ports])
+    run_all = args.all or not any([
+        args.dns, args.ssl, args.headers, args.whois,
+        args.subdomains, args.ports, getattr(args, "web_exposure", False),
+    ])
+    want_web = _want_web(args, run_all)
 
     if run_all or args.dns:
         print(f"  [1/6] DNS…")
@@ -164,6 +185,13 @@ def cmd_scan(args) -> None:
         except Exception as e:
             report.errors["ports"] = str(e)
 
+    if want_web:
+        print("  [+] Web exposure…")
+        try:
+            report.web_exposure = web_exposure.run(args.target)
+        except Exception as e:
+            report.errors["web_exposure"] = str(e)
+
     report.summary()
 
     if args.output:
@@ -189,6 +217,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument("--whois",      action="store_true")
     p_scan.add_argument("--subdomains", action="store_true")
     p_scan.add_argument("--ports",      action="store_true")
+    p_scan.add_argument("--web-exposure", action="store_true",
+                        help="Probe exposed web paths and fingerprint technologies")
+    p_scan.add_argument("--no-web-exposure", action="store_true",
+                        help="Skip exposed-path probing on a full scan")
     p_scan.add_argument("--wordlist",   default=None)
     p_scan.add_argument("--profile",    default="top20",
                         choices=list(port_scan.PROFILES))
@@ -244,6 +276,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_prt.add_argument("--no-banners", action="store_true",
                        help="Skip banner grabs and version probes")
     p_prt.set_defaults(func=cmd_ports)
+
+    # ── web ───────────────────────────────────────────────────────────
+    p_web = sub.add_parser("web", help="Exposed paths and web technology fingerprint")
+    p_web.add_argument("target")
+    p_web.add_argument("--timeout", type=float, default=5.0)
+    p_web.add_argument("--threads", type=int, default=4)
+    p_web.set_defaults(func=cmd_web)
 
     return parser
 

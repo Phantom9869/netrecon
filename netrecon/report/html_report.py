@@ -46,6 +46,12 @@ h2   { color: #8b949e; font-size: .85rem; font-weight: normal; margin-bottom: 2r
 .port-ver { color: #d2a8ff; width: 220px; }
 .port-banner { color: #8b949e; word-break: break-all; flex: 1; }
 .port-finding { color: #f85149; padding: .15rem 0 .15rem 70px; word-break: break-word; }
+.sev { width: 70px; text-transform: uppercase; }
+.sev-high { color: #f85149; }
+.sev-medium { color: #d29922; }
+.sev-low { color: #ffa657; }
+.sev-info { color: #8b949e; }
+.web-reason { color: #8b949e; padding: .15rem 0 .35rem 0; word-break: break-word; }
 .note { color: #8b949e; font-size: .75rem; margin-top: .75rem; }
 footer { color: #484f58; font-size: .75rem; margin-top: 2rem; text-align: center; }
 """
@@ -147,6 +153,50 @@ def _version_label(port) -> str:
     return port.product or port.version or "—"
 
 
+def _sev_class(severity: str) -> str:
+    if severity in {"high", "medium", "low", "info"}:
+        return severity
+    return "info"
+
+
+def _web_card(web) -> str:
+    if web is None:
+        return ""
+    high = sum(1 for finding in web.findings if finding.severity == "high")
+    body = _row("Base URL", web.base_url)
+    body += _row("Findings", f"{len(web.findings)} ({high} high)")
+    rows = ""
+    for finding in web.findings:
+        sev = _sev_class(finding.severity)
+        rows += (
+            '<div class="port-row">'
+            f'<span class="sev sev-{sev}">{_e(finding.severity)}</span>'
+            f'<span class="port-num">{_e(finding.status)}</span>'
+            f'<span class="port-svc">{_e(finding.path)}</span>'
+            f'<span class="port-banner">{_e(finding.url)}</span>'
+            "</div>\n"
+            f'<div class="port-finding">{_e(finding.reason)}</div>\n'
+        )
+    tech_rows = ""
+    for tech in web.technologies:
+        tech_rows += (
+            f'<div class="web-reason">{_e(tech.name)}: {_e(tech.evidence)}</div>\n'
+        )
+    if tech_rows:
+        tech_rows = _row("Technologies", str(len(web.technologies))) + tech_rows
+    lead_rows = ""
+    for lead in web.leads:
+        lead_rows += _row(lead.source, lead.path)
+    for error in web.errors:
+        lead_rows += f'<div class="issue">{_e(error)}</div>\n'
+    note = (
+        '<div class="note">Paths are confirmed by response content. '
+        "Secret values are redacted. robots.txt and sitemap leads were not requested. "
+        "Redirects that leave the target host are refused.</div>"
+    )
+    return _section("🕸 Web exposure", body + rows + tech_rows + lead_rows + note)
+
+
 def _ports_card(ports) -> str:
     open_ = [p for p in ports if p.state == "open"]
     if not open_: return ""
@@ -173,7 +223,8 @@ def save(report: ReconReport, path: str) -> None:
              + _headers_card(report.headers)
              + _whois_card(report.whois)
              + _subdomains_card(report.subdomains)
-             + _ports_card(report.ports))
+             + _ports_card(report.ports)
+             + _web_card(report.web_exposure))
 
     errors_html = ""
     if report.errors:
