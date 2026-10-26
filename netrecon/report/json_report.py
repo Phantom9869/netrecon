@@ -41,6 +41,28 @@ def _whois_dict(w):
             "days_until_expiry": w.days_until_expiry, "issues": w.issues}
 
 
+def _web_dict(web):
+    if web is None:
+        return None
+    return {
+        "base_url": web.base_url,
+        "findings": [
+            {"path": item.path, "url": item.url, "status": item.status,
+             "severity": item.severity, "reason": item.reason}
+            for item in web.findings
+        ],
+        "technologies": [
+            {"name": tech.name, "evidence": tech.evidence}
+            for tech in web.technologies
+        ],
+        "leads": [
+            {"source": lead.source, "path": lead.path}
+            for lead in web.leads
+        ],
+        "errors": list(web.errors),
+    }
+
+
 def save(report: ReconReport, path: str) -> None:
     data = {
         "target":     report.target,
@@ -55,6 +77,7 @@ def save(report: ReconReport, path: str) -> None:
                         "product": p.product, "version": p.version,
                         "findings": list(p.findings)}
                        for p in report.ports],
+        "web_exposure": _web_dict(report.web_exposure),
         "errors": report.errors,
     }
     Path(path).write_text(json.dumps(data, indent=2, default=_serial))

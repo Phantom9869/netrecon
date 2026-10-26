@@ -1,6 +1,8 @@
 # 🔍 netrecon
 
-A modular network reconnaissance toolkit. Profile a target domain or IP from every angle — DNS, SSL, HTTP headers, WHOIS, subdomain discovery, and port scanning — unified into one structured report.
+A modular network reconnaissance toolkit. Profile a target domain or IP from every angle — DNS, SSL, HTTP headers, WHOIS, subdomain discovery, port scanning, and web exposure — unified into one structured report.
+
+**Authorized use only.** Run netrecon only against hosts you are allowed to test. Probing for exposed files, headers, or services without permission may be illegal.
 
 ---
 
@@ -14,6 +16,7 @@ A modular network reconnaissance toolkit. Profile a target domain or IP from eve
 | `whois` | Registrar, creation/expiry dates, nameservers |
 | `subdomains` | Threaded wordlist brute-forcer + takeover detection |
 | `ports` | Threaded TCP scanner with service and version fingerprinting |
+| `web` | Exposed sensitive paths (content-checked) and web technology fingerprinting |
 
 ---
 
@@ -47,10 +50,15 @@ python -m netrecon ports example.com --range 1 1024
 python -m netrecon ports example.com --ports 22 80 443 3306
 python -m netrecon ports example.com --top-ports 40
 python -m netrecon ports example.com --ports 22 80 443 --no-banners
+python -m netrecon web   example.com
 
 # Save report
 python -m netrecon scan example.com --all --format json -o report.json
 python -m netrecon scan example.com --all --format html -o report.html
+
+# Full scan includes web exposure. Opt out with --no-web-exposure.
+python -m netrecon scan example.com --all --no-web-exposure -o report.html
+python -m netrecon scan example.com --web-exposure --format json -o report.json
 ```
 
 ---
@@ -120,6 +128,52 @@ HTML reports escape banner, product, version, findings, and the other target-con
 
 ---
 
+## Web exposure
+
+`web` sends GET requests for a small fixed list of high-signal paths and fingerprints the HTTP service from headers, cookie names, and HTML. A full `scan` runs it too. `--no-web-exposure` skips it. `--web-exposure` runs it on its own.
+
+Paths include `/.git/HEAD`, `/.git/config`, `/.env`, `/.svn/entries`, `/.DS_Store`, `/server-status`, `/phpinfo.php`, `/wp-config.php.bak`, `/backup.zip`, `/config.json`, `/actuator/env`, `/actuator/health`, `/swagger.json`, `/openapi.json`, `/.well-known/security.txt`, `/robots.txt`, `/sitemap.xml`, `/admin`, and `/login`.
+
+A hit has to match the path's content, not just an HTTP status. `/.git/HEAD` must start with `ref:`. `/.env` must look like `KEY=VALUE` lines. Before those checks, the module requests a random path and treats a later response as a soft 404 when the status, length, and body hash line up with that baseline (the requested path is removed first, so a custom 404 that echoes the URL still matches). SPA catch-all pages and custom 404s are not reported.
+
+Each finding has `path`, `url`, `status`, `severity` (`info`, `low`, `medium`, `high`), and a short `reason`. Secret values from `.env`, JSON config, actuator env, and WordPress config backups are not stored or printed. The reason may list key or constant names and says that values are redacted. `robots.txt` `Disallow` paths and sitemap locations are leads only — they are not requested.
+
+Technology names are a light heuristic (WordPress, Drupal, Django, Laravel, Spring, Express, nginx, Apache, Cloudflare, and a few others). Evidence is a header, a cookie name, or a short HTML marker.
+
+The probe is GET-only. It will not follow a redirect to another host, and it follows at most 3 redirects on the same host. Each body is capped at 64 KiB. Requests use a per-request timeout, a thread pool capped at 8, a total request budget (default 48, including the baseline, homepage, and redirects), and the user agent `netrecon/1.0 (web exposure probe; authorized testing only)`. Only `http` and `https` targets are accepted. Response bytes are decoded with replacement, control characters are stripped, and nothing from a response is evaluated or passed to a shell.
+
+On `scan`, web exposure uses those defaults rather than the port scanner's timeout and thread count.
+
+### JSON report
+
+Existing keys are unchanged. A new `web_exposure` key is `null` when the module did not run:
+
+```json
+"web_exposure": {
+  "base_url": "https://example.com",
+  "findings": [
+    {
+      "path": "/.env",
+      "url": "https://example.com/.env",
+      "status": 200,
+      "severity": "high",
+      "reason": "Environment file exposed; keys: DB_PASSWORD, API_KEY (values redacted)"
+    }
+  ],
+  "technologies": [
+    {"name": "nginx", "evidence": "Server: nginx/1.25.3"}
+  ],
+  "leads": [
+    {"source": "/robots.txt", "path": "/secret-admin"}
+  ],
+  "errors": []
+}
+```
+
+HTML reports escape finding URLs, reasons, technology evidence, leads, and the other target-controlled fields.
+
+---
+
 ## Structure
 
 ```
@@ -133,7 +187,8 @@ netrecon/
 │   │   ├── headers.py
 │   │   ├── whois_lookup.py
 │   │   ├── subdomains.py
-│   │   └── port_scan.py
+│   │   ├── port_scan.py
+│   │   └── web_exposure.py
 │   └── report/
 │       ├── json_report.py
 │       └── html_report.py
@@ -153,4 +208,4 @@ netrecon/
 
 ## Disclaimer
 
-Use netrecon only against hosts and networks you are authorized to test. Scanning systems without permission may be illegal. The version and exposure notes are reconnaissance hints, not a vulnerability assessment.
+Use netrecon only against hosts and networks you are authorized to test. Scanning systems or probing for exposed files without permission may be illegal. The version notes, exposed-path findings, and technology fingerprints are reconnaissance hints, not a vulnerability assessment.

@@ -71,6 +71,39 @@ class PortEntry:
     findings: list[str] = field(default_factory=list)
 
 
+# ── Web exposure ──────────────────────────────────────────────────────
+
+@dataclass
+class WebFinding:
+    path:     str
+    url:      str
+    status:   int
+    severity: str   # "info" | "low" | "medium" | "high"
+    reason:   str
+
+
+@dataclass
+class WebTechnology:
+    name:     str
+    evidence: str
+
+
+@dataclass
+class WebLead:
+    """A path mentioned by the target. Leads are listed, never requested."""
+    source: str
+    path:   str
+
+
+@dataclass
+class WebExposureResult:
+    base_url:     str = ""
+    findings:     list[WebFinding]    = field(default_factory=list)
+    technologies: list[WebTechnology] = field(default_factory=list)
+    leads:        list[WebLead]       = field(default_factory=list)
+    errors:       list[str]           = field(default_factory=list)
+
+
 # ── Top-level report ──────────────────────────────────────────────────
 
 @dataclass
@@ -83,6 +116,7 @@ class ReconReport:
     whois:      WhoisResult  | None = None
     subdomains: list[str]           = field(default_factory=list)
     ports:      list[PortEntry]     = field(default_factory=list)
+    web_exposure: WebExposureResult | None = None
     errors:     dict[str, str]      = field(default_factory=dict)
 
     @property
@@ -144,6 +178,22 @@ class ReconReport:
             flagged = sum(1 for p in self.open_ports if p.findings)
             if flagged:
                 print(f"  Port flags : {flagged} with findings")
+
+        if self.web_exposure is not None:
+            findings = self.web_exposure.findings
+            high = [f.path for f in findings if f.severity == "high"]
+            print(f"  Web        : {len(findings)} finding(s), {len(high)} high")
+            if high:
+                shown = ", ".join(high[:6])
+                extra = f" (+{len(high) - 6} more)" if len(high) > 6 else ""
+                print(f"  Exposed    : {shown}{extra}")
+            if self.web_exposure.technologies:
+                names = [t.name for t in self.web_exposure.technologies[:8]]
+                extra_n = len(self.web_exposure.technologies) - len(names)
+                more = f" (+{extra_n} more)" if extra_n > 0 else ""
+                print(f"  Tech       : {', '.join(names)}{more}")
+            if self.web_exposure.leads:
+                print(f"  Web leads  : {len(self.web_exposure.leads)} (not requested)")
 
         if self.errors:
             print(f"  Errors     : {', '.join(self.errors.keys())}")
